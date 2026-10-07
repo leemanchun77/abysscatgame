@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>MATCH+ 3D RPG — Holy Knight Girl</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#08111f;font-family:Arial,"Noto Sans TC",sans-serif;touch-action:none}
+canvas{display:block}
+#hud{position:fixed;left:18px;top:18px;color:white;z-index:5;pointer-events:none}
+.panel{background:rgba(5,12,24,.78);border:1px solid rgba(100,180,255,.35);border-radius:12px;padding:12px 14px;backdrop-filter:blur(8px)}
+.bar{width:220px;height:14px;background:#202b3a;border-radius:8px;overflow:hidden;margin:5px 0}
+#hpbar{height:100%;background:#e74c5b;width:100%;transition:width .15s}
+#expbar{height:100%;background:#42a5ff;width:0%;transition:width .15s}
+#help{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:6;color:#dbeaff;background:rgba(5,12,24,.72);border:1px solid rgba(100,180,255,.3);border-radius:12px;padding:10px 16px;text-align:center;pointer-events:none}
+#start{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at center,#18365a,#050a12 70%);color:white}
+.card{width:min(520px,88vw);text-align:center;background:rgba(5,12,24,.9);border:1px solid #397db5;border-radius:20px;padding:30px;box-shadow:0 20px 80px #0008}
+.card h1{margin:0 0 8px;font-size:32px}
+.card p{color:#c9dcf2;line-height:1.6}
+.actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:18px}
+button{cursor:pointer;border:0;border-radius:10px;padding:12px 22px;font-size:16px;font-weight:bold;background:#2d9cff;color:white}
+button.secondary{background:#26384c}
+#message{position:fixed;top:30%;left:50%;transform:translate(-50%,-50%);z-index:10;color:white;font-size:42px;font-weight:bold;text-shadow:0 3px 15px #000;display:none;pointer-events:none;text-align:center}
+#mobile{display:none;position:fixed;inset:0;z-index:8;pointer-events:none}
+#joystick{position:absolute;left:22px;bottom:24px;width:118px;height:118px;border-radius:50%;background:rgba(30,55,80,.48);border:2px solid rgba(180,220,255,.3);pointer-events:auto}
+#stick{position:absolute;left:31px;top:31px;width:56px;height:56px;border-radius:50%;background:rgba(80,160,240,.75);box-shadow:0 4px 18px #0008}
+#attackBtn{position:absolute;right:24px;bottom:35px;width:88px;height:88px;border-radius:50%;background:rgba(220,70,80,.82);border:2px solid rgba(255,255,255,.35);font-size:16px;pointer-events:auto}
+#shareBtnMobile{position:absolute;right:24px;bottom:138px;padding:10px 15px;font-size:13px;pointer-events:auto}
+#lookHint{position:absolute;right:18px;top:18px;padding:8px 11px;border-radius:10px;background:rgba(5,12,24,.5);color:#dbeaff;font-size:12px}
+@media (max-width:700px){
+  #hud{left:10px;top:10px}
+  .panel{padding:8px 10px;font-size:12px}
+  .bar{width:145px;height:10px}
+  #help{display:none}
+  #mobile{display:block}
+  #message{font-size:30px;width:90vw;text-align:center}
+  .card{padding:24px 18px}
+  .card h1{font-size:26px}
+}
+</style>
+</head>
+<body>
+
+<div id="start">
+  <div class="card">
+    <h1>⚔ 3D RPG Prototype</h1>
+    <p>Knight · Skeletons · Boss · EXP</p>
+    <p id="controlsText">WASD 移動　｜　滑鼠控制視角　｜　H 攻擊</p>
+    <div class="actions">
+      <button id="startBtn">START GAME</button>
+      <button id="shareBtn" class="secondary">🔗 分享遊戲</button>
+    </div>
+  </div>
+</div>
+
+<div id="hud">
+  <div class="panel">
+    <div>⚔ KNIGHT　Lv.<span id="level">1</span></div>
+    <div>HP</div><div class="bar"><div id="hpbar"></div></div>
+    <div>EXP</div><div class="bar"><div id="expbar"></div></div>
+    <div>擊殺：<span id="kills">0</span>　Gold：<span id="gold">0</span></div>
+  </div>
+</div>
+
+<div id="help">WASD 移動 · 滑鼠視角 · H 攻擊 · R 重置 · ESC 解鎖滑鼠</div>
+<div id="message"></div>
+
+<div id="mobile">
+  <div id="lookHint">拖動畫面右側轉視角</div>
+  <div id="joystick"><div id="stick"></div></div>
+  <button id="attackBtn">⚔ 攻擊</button>
+  <button id="shareBtnMobile" class="secondary">分享</button>
+</div>
+
+<script type="module">
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js";
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x07111f);
+scene.fog = new THREE.Fog(0x07111f, 25, 90);
+
+const camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, .1, 150);
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth,innerHeight);
+renderer.shadowMap.enabled=true;
+document.body.appendChild(renderer.domElement);
+
+scene.add(new THREE.HemisphereLight(0x9fd5ff,0x172235,2.0));
+const sun=new THREE.DirectionalLight(0xffffff,2.2);
+sun.position.set(-20,30,15); sun.castShadow=true; scene.add(sun);
+
+const ground=new THREE.Mesh(
+  new THREE.PlaneGeometry(100,100),
+  new THREE.MeshStandardMaterial({color:0x183326,roughness:1})
+);
+ground.rotation.x=-Math.PI/2; ground.receiveShadow=true; scene.add(ground);
+
+const grid=new THREE.GridHelper(100,50,0x294c5d,0x18323d);
+grid.position.y=.01; scene.add(grid);
+
+function mat(c){return new THREE.MeshStandardMaterial({color:c,roughness:.7});}
+function cube(s,c){const m=new THREE.Mesh(new THREE.BoxGeometry(...s),mat(c));m.castShadow=m.receiveShadow=true;return m;}
+
+const player=new THREE.Group(); scene.add(player);
+player.position.set(0,0,8);
+
+const K={
+  white:mat(0xe9edf2), silver:mat(0xaeb7c2), darkSilver:mat(0x687583),
+  gold:mat(0xd4a84d), skin:mat(0xf0b894), hair:mat(0xf2c86b),
+  hair2:mat(0xdca84d), green:mat(0x5d8f83), dark:mat(0x303b49)
+};
+function B(s,m,p,r=[0,0,0]){const x=new THREE.Mesh(new THREE.BoxGeometry(...s),m);x.position.set(...p);x.rotation.set(...r);x.castShadow=true;x.receiveShadow=true;player.add(x);return x;}
+function I(r,m,p,detail=1){const x=new THREE.Mesh(new THREE.IcosahedronGeometry(r,detail),m);x.position.set(...p);x.castShadow=true;x.receiveShadow=true;player.add(x);return x;}
+function C(r,h,m,p,seg=10){const x=new THREE.Mesh(new THREE.CylinderGeometry(r,r*.9,h,seg),m);x.position.set(...p);x.castShadow=true;x.receiveShadow=true;player.add(x);return x;}
+
+// CHIBI LOW-POLY HOLY KNIGHT GIRL
+B([.38,.48,.32],K.white,[-.19,.38,0]);
+B([.38,.48,.32],K.white,[ .19,.38,0]);
+B([.48,.18,.55],K.silver,[-.19,.12,-.03]);
+B([.48,.18,.55],K.silver,[ .19,.12,-.03]);
+B([.95,.55,.62],K.white,[0,.82,0]);
+B([1.02,.12,.66],K.gold,[0,.58,-.02]);
+B([.82,.65,.52],K.silver,[0,1.15,-.02]);
+B([.62,.22,.08],K.white,[0,1.22,-.30]);
+B([.16,.34,.06],K.gold,[0,1.17,-.35]);
+B([.30,.25,.48],K.silver,[-.57,1.34,0],[0,0,-.08]);
+B([.30,.25,.48],K.silver,[ .57,1.34,0],[0,0,.08]);
+B([.24,.55,.25],K.white,[-.66,1.05,0],[0,0,-.08]);
+const rightArm=B([.24,.55,.25],K.white,[ .66,1.05,0],[0,0,.08]);
+B([.27,.20,.27],K.skin,[-.71,.76,0]);
+B([.27,.20,.27],K.skin,[ .71,.76,0]);
+B([.24,.16,.24],K.skin,[0,1.64,0]);
+I(.62,K.skin,[0,2.12,0],1);
+I(.62,K.hair,[0,2.30,.08],1);
+B([.24,.55,.30],K.hair,[-.50,2.12,.06],[0,0,-.18]);
+B([.24,.55,.30],K.hair,[ .50,2.12,.06],[0,0,.18]);
+B([.28,.34,.34],K.hair2,[-.40,2.42,-.02],[0,0,-.2]);
+B([.28,.34,.34],K.hair2,[ .40,2.42,-.02],[0,0,.2]);
+B([.92,.22,.78],K.white,[0,2.52,-.02]);
+B([.74,.18,.12],K.silver,[0,2.37,-.38]);
+I(.14,K.silver,[0,2.51,-.43],1);
+I(.075,K.white,[0,2.51,-.50],1);
+I(.055,K.green,[-.20,2.14,-.56],1); I(.055,K.green,[.20,2.14,-.56],1);
+B([.82,.80,.08],K.white,[0,1.35,.34]);
+B([.86,.08,.09],K.gold,[0,.96,.37]);
+
+const shield=B([.62,.82,.14],K.white,[-.83,1.08,.02]);
+I(.17,K.silver,[-.83,1.08,-.08],1);
+I(.07,K.gold,[-.83,1.08,-.18],1);
+
+// FIX: real sword/lance object is now explicitly created before attack().
+const swordGroup=new THREE.Group();
+swordGroup.position.set(.88,1.45,-.18);
+swordGroup.rotation.z=-.12;
+player.add(swordGroup);
+const swordBlade=new THREE.Mesh(new THREE.BoxGeometry(.11,1.65,.12),K.silver);
+swordBlade.position.y=.68; swordBlade.castShadow=true; swordGroup.add(swordBlade);
+const swordEdge=new THREE.Mesh(new THREE.BoxGeometry(.07,1.45,.06),K.white);
+swordEdge.position.set(0,.72,-.07); swordEdge.castShadow=true; swordGroup.add(swordEdge);
+const swordGuard=new THREE.Mesh(new THREE.BoxGeometry(.46,.10,.15),K.gold);
+swordGuard.position.y=-.12; swordGuard.castShadow=true; swordGroup.add(swordGuard);
+const swordGrip=new THREE.Mesh(new THREE.BoxGeometry(.10,.42,.10),K.dark);
+swordGrip.position.y=-.36; swordGrip.castShadow=true; swordGroup.add(swordGrip);
+const swordPommel=new THREE.Mesh(new THREE.IcosahedronGeometry(.09,1),K.gold);
+swordPommel.position.y=-.58; swordPommel.castShadow=true; swordGroup.add(swordPommel);
+const sword=swordGroup;
+
+// Attack animation state: a visible side-to-side sword slash.
+const attackStartRotZ=-0.15;
+const attackWindupRotZ=-1.05;
+const attackSlashRotZ=0.95;
+const attackStartY=1.45;
+const attackStartX=.88;
+sword.rotation.z=attackStartRotZ;
+
+const enemies=[];
+let boss=null;
+let hp=100, level=1, exp=0, kills=0, gold=0, attacking=false, attackTime=0;
+const keys={};
+let yaw=0, pitch=-.25;
+let gameStarted=false;
+let joystickX=0, joystickY=0;
+let lastTouchX=null, lastTouchY=null;
+
+function makeEnemy(isBoss=false){
+  const g=new THREE.Group();
+  const body=cube(isBoss?[1.7,2.5,1.1]:[.8,1.3,.6],isBoss?0x57205e:0x65717d);
+  body.position.y=isBoss?1.35:.8; g.add(body);
+  const h=new THREE.Mesh(new THREE.SphereGeometry(isBoss?.55:.32,12,10),mat(isBoss?0x9e55c2:0xd0d0d0));
+  h.position.y=isBoss?3:1.9; g.add(h);
+  if(!isBoss){
+    const eyeMat=mat(0xff3344);
+    for(const x of [-.11,.11]){
+      const e=new THREE.Mesh(new THREE.SphereGeometry(.045,8,8),eyeMat);
+      e.position.set(x,1.62,-.28);g.add(e);
+    }
+  }
+  g.position.set((Math.random()-.5)*24,0,(Math.random()-.5)*24);
+  g.castShadow=true;
+  scene.add(g);
+  return {g,hp:isBoss?160:35,max:isBoss?160:35,boss:isBoss,speed:isBoss?1.25:1.8,attackCooldown:0};
+}
+
+for(let i=0;i<5;i++) enemies.push(makeEnemy(false));
+
+function spawnBoss(){
+  if(boss)return;
+  boss=makeEnemy(true); boss.g.position.set(0,0,-22); enemies.push(boss);
+  showMessage("⚠ BOSS 出現！");
+}
+function showMessage(t){
+  const el=document.getElementById("message"); el.textContent=t; el.style.display="block";
+  clearTimeout(showMessage.timer);
+  showMessage.timer=setTimeout(()=>el.style.display="none",1200);
+}
+
+function reset(){ location.reload(); }
+
+function attack(){
+  if(!gameStarted || hp<=0 || attacking)return;
+  attacking=true;
+  attackTime=0;
+  sword.rotation.z=attackWindupRotZ;
+  sword.rotation.x=-0.15;
+  rightArm.rotation.z=-0.75;
+
+  // Damage is applied at the middle of the slash, matching the visible hit.
+  setTimeout(()=>{
+    for(const e of enemies.slice()){
+      if(e.hp<=0)continue;
+      const d=player.position.distanceTo(e.g.position);
+      if(d<3.0){
+        e.hp-=25;
+        e.g.scale.setScalar(.9);
+        setTimeout(()=>{if(e.g)e.g.scale.setScalar(1)},80);
+        if(e.hp<=0){
+          scene.remove(e.g);
+          kills++; gold+=e.boss?100:10; exp+=e.boss?100:25;
+          if(!e.boss){
+            if(kills===5) spawnBoss();
+          }else{
+            showMessage("🏆 BOSS DEFEATED!");
+          }
+          if(exp>=100){
+            exp-=100;level++;hp=100;showMessage("LEVEL UP!");
+          }
+        }
+      }
+    }
+  },140);
+}
+
+function updateAttackAnimation(dt){
+  if(!attacking){
+    sword.rotation.z=THREE.MathUtils.damp(sword.rotation.z,attackStartRotZ,18,dt);
+    sword.rotation.x=THREE.MathUtils.damp(sword.rotation.x,0,18,dt);
+    sword.position.x=THREE.MathUtils.damp(sword.position.x,attackStartX,18,dt);
+    sword.position.y=THREE.MathUtils.damp(sword.position.y,attackStartY,18,dt);
+    rightArm.rotation.z=THREE.MathUtils.damp(rightArm.rotation.z,.08,18,dt);
+    return;
+  }
+
+  attackTime+=dt;
+  const t=Math.min(attackTime/.34,1);
+  // Smooth wind-up -> fast slash -> recovery.
+  if(t<.42){
+    const p=t/.42;
+    const e=p*p*(3-2*p);
+    sword.rotation.z=THREE.MathUtils.lerp(attackWindupRotZ,attackSlashRotZ,e);
+    sword.rotation.x=THREE.MathUtils.lerp(-.15,.28,e);
+    rightArm.rotation.z=THREE.MathUtils.lerp(-.75,.45,e);
+  }else{
+    const p=(t-.42)/.58;
+    const e=p*p*(3-2*p);
+    sword.rotation.z=THREE.MathUtils.lerp(attackSlashRotZ,attackStartRotZ,e);
+    sword.rotation.x=THREE.MathUtils.lerp(.28,0,e);
+    rightArm.rotation.z=THREE.MathUtils.lerp(.45,.08,e);
+  }
+
+  if(attackTime>=.34){
+    attacking=false;
+    sword.rotation.z=attackStartRotZ;
+    sword.rotation.x=0;
+    sword.position.set(attackStartX,attackStartY,-.18);
+    rightArm.rotation.z=.08;
+  }
+}
+
+function updatePlayer(dt){
+  const f=new THREE.Vector3(Math.sin(yaw),0,Math.cos(yaw));
+  const r=new THREE.Vector3(Math.cos(yaw),0,-Math.sin(yaw));
+  let dir=new THREE.Vector3();
+  if(keys.KeyW)dir.add(f);
+  if(keys.KeyS)dir.sub(f);
+  if(keys.KeyD)dir.add(r);
+  if(keys.KeyA)dir.sub(r);
+
+  // Mobile joystick movement
+  if(Math.abs(joystickX)+Math.abs(joystickY)>.08){
+    dir.addScaledVector(f,-joystickY);
+    dir.addScaledVector(r,joystickX);
+  }
+
+  if(dir.lengthSq()>0){
+    dir.normalize();
+    player.position.addScaledVector(dir,7*dt);
+    player.rotation.y=Math.atan2(dir.x,dir.z);
+  }
+  player.position.x=THREE.MathUtils.clamp(player.position.x,-46,46);
+  player.position.z=THREE.MathUtils.clamp(player.position.z,-46,46);
+}
+
+function updateEnemies(dt){
+  for(const e of enemies){
+    if(e.hp<=0)continue;
+    const d=e.g.position.distanceTo(player.position);
+    if(d>1.65){
+      const dir=player.position.clone().sub(e.g.position); dir.y=0;
+      if(dir.lengthSq()>0)dir.normalize();
+      e.g.position.addScaledVector(dir,e.speed*dt);
+      e.g.rotation.y=Math.atan2(dir.x,dir.z);
+    }else{
+      e.attackCooldown-=dt;
+      if(e.attackCooldown<=0){
+        hp-=e.boss?12:5;
+        e.attackCooldown=e.boss?1.0:1.3;
+        if(hp<=0){hp=0;showMessage("💀 YOU DIED — 按 R 重置");}
+      }
+    }
+  }
+}
+
+function updateCamera(dt){
+  const target=player.position.clone(); target.y+=1.5;
+  const dist=7;
+  const offset=new THREE.Vector3(
+    Math.sin(yaw)*Math.cos(pitch)*dist,
+    Math.sin(pitch)*dist+3.0,
+    Math.cos(yaw)*Math.cos(pitch)*dist
+  );
+  const desired=target.clone().add(offset);
+  camera.position.lerp(desired,1-Math.pow(.001,dt));
+  camera.lookAt(target);
+}
+
+// Desktop mouse
+renderer.domElement.addEventListener("click",()=>{
+  if(!gameStarted)return;
+  if(document.pointerLockElement!==renderer.domElement){
+    renderer.domElement.requestPointerLock?.();
+  }else{
+    attack();
+  }
+});
+document.addEventListener("mousemove",e=>{
+  if(document.pointerLockElement===renderer.domElement){
+    yaw-=e.movementX*.0025;
+    pitch-=e.movementY*.002;
+    pitch=THREE.MathUtils.clamp(pitch,-.65,.15);
+  }
+});
+
+// Keyboard
+addEventListener("keydown",e=>{
+  keys[e.code]=true;
+  if(e.code==="KeyR")reset();
+  if(e.code==="KeyH")attack();
+});
+addEventListener("keyup",e=>keys[e.code]=false);
+
+// Mobile joystick
+const joystick=document.getElementById("joystick");
+const stick=document.getElementById("stick");
+let joyPointer=null;
+function setJoystick(e){
+  const r=joystick.getBoundingClientRect();
+  const cx=r.left+r.width/2, cy=r.top+r.height/2;
+  let dx=e.clientX-cx, dy=e.clientY-cy;
+  const max=39, len=Math.hypot(dx,dy);
+  if(len>max){dx=dx/len*max;dy=dy/len*max;}
+  joystickX=dx/max; joystickY=dy/max;
+  stick.style.transform=`translate(${dx}px,${dy}px)`;
+}
+joystick.addEventListener("pointerdown",e=>{joyPointer=e.pointerId;joystick.setPointerCapture(e.pointerId);setJoystick(e);});
+joystick.addEventListener("pointermove",e=>{if(e.pointerId===joyPointer)setJoystick(e);});
+joystick.addEventListener("pointerup",e=>{if(e.pointerId===joyPointer){joyPointer=null;joystickX=joystickY=0;stick.style.transform="translate(0,0)";}});
+joystick.addEventListener("pointercancel",()=>{joyPointer=null;joystickX=joystickY=0;stick.style.transform="translate(0,0)"});
+
+document.getElementById("attackBtn").addEventListener("pointerdown",e=>{e.preventDefault();attack();});
+
+// Mobile right-side drag = camera
+addEventListener("pointerdown",e=>{
+  if(innerWidth>700 || e.target.closest("#joystick") || e.target.closest("#attackBtn") || e.target.closest("#shareBtnMobile"))return;
+  lastTouchX=e.clientX; lastTouchY=e.clientY;
+});
+addEventListener("pointermove",e=>{
+  if(innerWidth>700 || lastTouchX===null)return;
+  if(e.target.closest("#joystick") || e.target.closest("#attackBtn") || e.target.closest("#shareBtnMobile"))return;
+  const dx=e.clientX-lastTouchX, dy=e.clientY-lastTouchY;
+  yaw-=dx*.008; pitch-=dy*.006;
+  pitch=THREE.MathUtils.clamp(pitch,-.65,.15);
+  lastTouchX=e.clientX; lastTouchY=e.clientY;
+});
+addEventListener("pointerup",()=>{lastTouchX=lastTouchY=null;});
+
+// Share / Copy link
+async function shareGame(){
+  const url=location.href;
+  try{
+    if(navigator.share){
+      await navigator.share({title:"3D RPG Prototype",text:"來玩我的 3D RPG！",url});
+      showMessage("🔗 已開啟分享");
+    }else if(navigator.clipboard){
+      await navigator.clipboard.writeText(url);
+      showMessage("✅ Link 已複製！");
+    }else{
+      prompt("複製遊戲 Link：",url);
+    }
+  }catch(e){}
+}
+document.getElementById("shareBtn").addEventListener("click",shareGame);
+document.getElementById("shareBtnMobile").addEventListener("click",shareGame);
+
+// Start
+document.getElementById("startBtn").onclick=()=>{
+  gameStarted=true;
+  document.getElementById("start").style.display="none";
+  if(innerWidth>700)renderer.domElement.requestPointerLock?.();
+};
+
+addEventListener("resize",()=>{
+  camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
+
+let last=performance.now();
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt=Math.min((now-last)/1000,.05); last=now;
+  if(gameStarted && hp>0){
+    updateAttackAnimation(dt);
+    updatePlayer(dt); updateEnemies(dt); updateCamera(dt);
+  }else if(!gameStarted){
+    updateCamera(dt);
+  }
+  document.getElementById("level").textContent=level;
+  document.getElementById("kills").textContent=kills;
+  document.getElementById("gold").textContent=gold;
+  document.getElementById("hpbar").style.width=Math.max(0,hp)+"%";
+  document.getElementById("expbar").style.width=exp+"%";
+  renderer.render(scene,camera);
+}
+loop(last);
+</script>
+</body>
+</html>
